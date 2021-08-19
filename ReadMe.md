@@ -28,55 +28,103 @@ HELLO GOOD DAY,
 ->burayıda kendinize göre uyarlayınız.
 ->Customize it for yourself here.
 
-* Daha Sonra web servisi kullanabilmek için aşağıdaki include dahil ediyoruz.
+* Daha Sonra Sepetteki Ürünleri Eklemek için aşağıdaki yönergeleri takip ediniz.
 
 ->Öncelikle kullanmak istediğiniz sayfaya
+->Mysql bağlantısı olan connection.php'yi dahil ediyoruz.
 -> include 'ntlm/Client.php';
 ->dahil ediniz.
 
-* Daha sonra verileri çekmek için bu işlemleri yapıyoruz.
-* To be able to use the web service later, we include the following include.
+* 
+if (isset($_POST['saveOrder'])) { //saveOrder isimli buttona tıklanırsa oluşacak eylem
+                                  // the action that will occur if the button named saveOrder is clicked
 
-->$pageURL değişkeninde Client.php içerisinde bulunan $baseURL ve $cur değişkenleri include sayesinde dahil ediyoruz. Son satırda yer alan Items ise Microsoft Dynamics Nav üzerinde oluşturduğumuz. Soap Web servisimizin ismidir.
-->Thanks to inclusion, we include the variables $baseURL and $cur in the variable ->$pageURL in Client.php. The items in the last row are items we created in Microsoft Dynamics Nav. Soap is the name of our Web service.
+    $pageURL = $baseURL.rawurlencode($cur).'/Page/SalesOrder'; //SalesOrder cart kısmının soap web servisini tanımlıyoruz.
+                                                                //We define the soap web service of the SalesOrder cart part.
 
--> $params değişkenine yapmak istediğimiz filtreleri tanımlıyoruz.
--> We define the filters we want to do in the $params variable.
+    $service = new NTLMSoapClient($pageURL); //$pageURL soap web servis url'i obje olarak oluşturuyoruz.
+                                            //$pageURL soap We are creating the web service url as an object.
 
--> $page değişkeni ile yeni $pageURL objesi oluşturuyoruz.
--> We create a new $pageURL object with the $page variable.
+    $create = new stdClass(); //stdClass sınıfından 1 obje oluşturuyoruz.
+                              // We create 1 object from the stdClass class.
 
--> $params değişkeni ile filtlerimizi ayarlıyoruz. fieldleri kullanarak birden fazla field ekleyerek filtreleme işlemini gerçekleştirebiliriz.
--> We set our filters with the $params variable. We can perform filtering by adding more than one field using fields.
+    $sq = new stdClass();     //stdClass sınıfından 1 obje oluşturuyoruz.
+                              // We create 1 object from the stdClass class.
 
--> $result değişkeni ile $page değişkenine $params filtresini uyguluyoruz.
--> With the $result variable, we apply the $params filter to the $page variable.
+    $sq->Sell_to_Customer_Name="Customer Name"; //$sq objemize alıcı müşteri adını veriyoruz.
+                                                // We give our $sq object the name of the client client.
+    
+    $create->SalesOrder = $sq; //$create objemizin SalesOrder kısmına $sq değerini veriyoruz.
+                                // We give the value $sq to the SalesOrder part of our $create object.
 
--> $items değişkeni ile verilerimizi çekmeye hazırız.
--> We are ready to pull our data with the $items variable.
+    $result = $service->create($create); //$create ile aldığımız değerle $service soap web servisinde bulunan sales header kısmını oluşturuyoruz.
+                                          // With the value we get with $create, we create the sales header part of the $service soap web service.
 
-->is_array($items) kontrol ederek foreach kullanarak döngü oluşturduk değilse else bloğu çalışarak veriler gelecektir.
-->By checking ->is_array($items), we created a loop using foreach, otherwise the else block will work and the data will come.
+    $key = $result->SalesOrder->Key; // oluşturduğumuz sales headerin hangi sales line'a bağlanacağı için $key ile key verisini alıyoruz.
+                                    // We get the key data with $key for which sales line the sales header we created will be connected to.
 
-    $pageURL = $baseURL.rawurlencode($cur).'/Page/Items'; 
-              $page = new NTLMSoapClient($pageURL);
-              $params = array('filter' => array( 
-                array('Field' => 'Block',
-                  'Criteria' => 'No'
-                )
-              ),
-              'setSize' => 0); 
+    $update = new stdClass(); //stdClass sınıfından 1 obje oluşturuyoruz. İşlem sonunda update etmemiz gerekiyor.
+                              // We create 1 object from the stdClass class. At the end of the process, we need to update it.
 
-              $result = $page->ReadMultiple($params); 
-              $items = $result->ReadMultiple_Result->Items;
+    $sq->Key = $key; //$keyde oluşturduğumuz veriyi $sq'nun key değerine atıyoruz.
+                    // We assign the data we created in $key to the key value of $sq.
 
-                if (is_array($items)) { 
-                      foreach($items as $item)
-                    { 
-                        echo $item->Item_No.' -> '$item->Description;
-                    }
-                }
+    $basket=$db->prepare("SELECT * FROM basket where customerID=:id"); //mysql veri tabanında bulunan o müşteriye ait sepetteki ürünleri çekiyoruz.
+                                                                      // We are pulling the products in the basket of that customer in the mysql database.
+    $basket->execute(array(
+        'id' => "customer id"
+    ));
 
-                else{
-                    echo $items->Item_No.' -> '$items->Description;
-                }
+    $counter=0; //sayaç belirleyerek sales line da birden fazla veri ekleyeceğiz.
+                // We will add more than one data in the sales line by specifying a counter.
+
+    $salesLineList = new stdClass(); //sales line list için bir stdClass objesi oluşturuyoruz.
+                                      //We create a stdClass object for the sales line list.
+
+    while($basketResult=$basket->fetch(PDO::FETCH_ASSOC)) { //while Döngüsü ile sepetteki verileri alıp sales line'a kaydedeceğiz.
+                                                            //While Loop, we will take the data in the basket and save it to the sales line.
+
+        $qty=$basketResult['qty']; //sepetteki adet datası
+                                  // quantity data in the basket
+
+        $itemNo=$basketResult['itemNo'];//sepetteki madde numarası datası
+                                        // item number data in the cart
+
+        $variantCode=$basketResult['variantCode'];//sepetteki varyant numarası datası
+                                                  //variant number data in the cart
+
+        $salesLine = new stdClass(); // Sales line için yeni stdClass objesi oluşturuyoruz.
+                                      // We create a new stdClass object for the sales line.
+
+        $salesLine->No = $itemNo; //sales line'deki No'ya datayı veriyoruz 
+                                  // give the data to No on the sales line
+
+        $salesLine->Type = 'Item';//sales line'deki Type datayı veriyoruz
+                                  // We give the Type data in the sales line
+                                  
+        $salesLine->Variant_Code =$variantCode;//sales Variant_Code'deki datayı veriyoruz
+                                               // give the data in sales Variant_Code
+
+        $salesLine->Quantity = $qty;//sales Quantity'deki datayı veriyoruz
+                                    //give the data in sales Quantity
+
+        $salesLineList->Sales_Order_Line[$counter] = $salesLine; //Bütün dataları verdikten sonra $counter sayacı ile hangi satıra eklediğimizi veriyoruz.
+                                                                //After giving all the data, we give the line we added with the $counter counter.
+
+        $sq->SalesLines = $salesLineList; // $sq'daki SalesLines'a verimizi atıyoruz.
+                                          // We are sending our data to SalesLines in $sq.
+
+        $counter++; //sayaç değerini artırarak yeni satıra geçerken hangi satır olduğunu belirtiriz.
+                    // By increasing the counter value, we indicate which line it is when switching to the new line.
+
+        }
+    
+
+    $update->SalesOrder = $sq; //Bütün değerler satırlara eklendikten sonra  $sq ile oluşturduğumuz SalesLines'i SalesOrder'a atıyoruz.
+                              //After all the values are added to the rows, we assign the SalesLines we created with $sq to SalesOrder.
+
+    $result = $service->Update($update); //ve son olarak saop web servisimizi  Update ederek bitiriyoruz.
+                                          // and finally we finish by updating our saop web service.
+}
+
+
